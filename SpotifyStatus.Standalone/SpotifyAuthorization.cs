@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using SpotifyAPI.Web;
 using SpotifyAPI.Web.Auth;
 
-namespace NeosSpotifyStatus
+namespace SpotifyStatus
 {
     internal class SpotifyAuthorization
     {

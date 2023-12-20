@@ -1,7 +1,7 @@
 ﻿using System;
 using WebSocketSharp;
 
-namespace NeosSpotifyStatus.TestClient
+namespace SpotifyStatus.TestClient
 {
     internal class Program
     {

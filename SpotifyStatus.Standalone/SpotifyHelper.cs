@@ -5,7 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 using SpotifyAPI.Web;
 
-namespace NeosSpotifyStatus
+namespace SpotifyStatus
 {
     internal static class SpotifyHelper
     {

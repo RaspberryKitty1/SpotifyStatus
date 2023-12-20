@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace NeosSpotifyStatus
+namespace SpotifyStatus
 {
     internal class SpotifyResource
     {

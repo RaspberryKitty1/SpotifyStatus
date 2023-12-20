@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Globalization;
 using System.Net;
 using System.Net.Http;
 using System.Threading;
@@ -6,19 +8,22 @@ using System.Threading.Tasks;
 using SpotifyAPI.Web;
 using WebSocketSharp.Server;
 
-namespace NeosSpotifyStatus
+namespace SpotifyStatus
 {
     internal static class SpotifyTracker
     {
         private const string wsServiceName = "/neos-spotify-bridge";
+        private static readonly string ClearAll = SpotifyInfo.Clear.ToUpdateInt().ToString(CultureInfo.InvariantCulture);
+        private static readonly string ClearQueue = SpotifyInfo.ClearQueue.ToUpdateInt().ToString(CultureInfo.InvariantCulture);
         private static readonly OAuthClient oAuthClient = new OAuthClient(SpotifyClientConfig.CreateDefault());
         private static readonly ManualResetEventSlim spotifyClientAvailable = new ManualResetEventSlim(false);
-        private static readonly Timer updateTimer = new Timer(Update);
+        private static readonly Timer updateTimer = new Timer(UpdatePlaybackAsync);
         private static readonly WebSocketServer wsServer = new WebSocketServer(IPAddress.Loopback, 1011, false);
         private static DateTime accessExpiry;
         private static AbsoluteTimer.AbsoluteTimer authTimer;
+        private static SpotifyResource lastItem;
         public static CurrentlyPlayingContext LastPlayingContext { get; private set; }
-        public static int Listeners => wsServer.WebSocketServices[wsServiceName].Sessions.Count;
+        public static int Listeners => SpotifyServiceHost.Sessions.Count;
 
         /// <summary>
         /// Gets or sets the playback refresh interval in milliseconds.
@@ -28,6 +33,8 @@ namespace NeosSpotifyStatus
         public static int RepeatNum { get; set; }
 
         public static SpotifyClient Spotify { get; private set; }
+
+        public static WebSocketServiceHost SpotifyServiceHost => wsServer.WebSocketServices[wsServiceName];
 
         static SpotifyTracker()
         {
@@ -43,17 +50,18 @@ namespace NeosSpotifyStatus
 
             spotifyClientAvailable.Wait();
 
-            Update();
+            UpdatePlaybackAsync();
         }
 
-        public static async void Update(object _ = null)
+        public static async void UpdatePlaybackAsync(object _ = null)
         {
             spotifyClientAvailable.Wait();
 
             // Skip hitting the API when there's no client anyways
             if (Listeners == 0)
             {
-                updateTimer.Change(5000, Timeout.Infinite);
+                // This method gets called manually when a new listener connects
+                updateTimer.Change(Timeout.Infinite, Timeout.Infinite);
                 return;
             }
 
@@ -61,17 +69,37 @@ namespace NeosSpotifyStatus
 
             if (currentPlayback == null || currentPlayback.Item == null) // move this to individual checks on trackers
             {
-                wsServer.WebSocketServices[wsServiceName].Sessions.Broadcast("0");
+                SpotifyServiceHost.Sessions.Broadcast(ClearAll);
                 updateTimer.Change(RefreshInterval, Timeout.Infinite);
+
                 return;
             }
 
-            ContextUpdated?.Invoke(currentPlayback);
+            if (!currentPlayback.Item.GetResource().Equals(lastItem))
+            {
+                lastItem = currentPlayback.Item.GetResource();
+                UpdateQueueAsync();
+            }
+
+            PlayingContextUpdated?.Invoke(currentPlayback);
 
             LastPlayingContext = currentPlayback;
             updateTimer.Change(LastPlayingContext.Item != null ?
                 Math.Min(RefreshInterval, LastPlayingContext.Item.GetDuration() - LastPlayingContext.ProgressMs + 1000) : RefreshInterval,
                 Timeout.Infinite);
+        }
+
+        public static async void UpdateQueueAsync()
+        {
+            var currentQueue = await Spotify.Player.GetQueue();
+
+            if (currentQueue == null || currentQueue.Queue == null)
+            {
+                SpotifyServiceHost.Sessions.Broadcast(ClearQueue);
+                return;
+            }
+
+            QueueUpdated?.Invoke(currentQueue.Queue);
         }
 
         private static async Task gainAuthorization()
@@ -157,6 +185,8 @@ namespace NeosSpotifyStatus
             }
         }
 
-        public static event Action<CurrentlyPlayingContext> ContextUpdated;
+        public static event Action<CurrentlyPlayingContext> PlayingContextUpdated;
+
+        public static event Action<List<IPlayableItem>> QueueUpdated;
     }
 }

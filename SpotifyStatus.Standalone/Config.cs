@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 using IniParser;
 using IniParser.Model;
 
-namespace NeosSpotifyStatus
+namespace SpotifyStatus
 {
     internal static class Config
     {

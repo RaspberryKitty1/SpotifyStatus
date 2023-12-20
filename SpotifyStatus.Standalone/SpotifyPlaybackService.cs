@@ -8,19 +8,21 @@ using WebSocketSharp.Server;
 using SpotifyAPI.Web;
 using System.Text.RegularExpressions;
 using System.Globalization;
+using SpotifyStatus.Standalone;
 
-namespace NeosSpotifyStatus
+namespace SpotifyStatus
 {
-    internal class SpotifyPlaybackService : WebSocketBehavior
+    internal sealed class SpotifyPlaybackService : WebSocketBehavior
     {
-        private static readonly Regex spotifyUriEx = new Regex(@"(?:spotify:|https?:\/\/open\.spotify\.com\/)(episode|track)[:\/]([0-9A-z]+)");
+        private static readonly Regex spotifyUriEx = new(@"(?:spotify:|https?:\/\/open\.spotify\.com(\/.*)+?)(episode|track)[:\/]([0-9A-z]+)");
 
-        private readonly List<ChangeTracker> changeTrackers;
+        private readonly List<ChangeTracker> contextChangeTrackers;
         private CurrentlyPlayingContext lastPlayingContext;
+        private Dictionary<SpotifyResource, int> lastQueue = new();
 
         public SpotifyPlaybackService()
         {
-            changeTrackers = new List<ChangeTracker>()
+            contextChangeTrackers = new List<ChangeTracker>()
             {
                 new ChangeTracker(nC => handleChangedResource(SpotifyInfo.Playable, nC.Item.GetResource()),
                     (oC, nC) => !oC.Item.GetResource().Equals(nC.Item.GetResource())),
@@ -61,24 +63,62 @@ namespace NeosSpotifyStatus
 
         protected override void OnClose(CloseEventArgs e)
         {
-            SpotifyTracker.ContextUpdated -= sendOutUpdates;
+            SpotifyTracker.PlayingContextUpdated -= sendOutContextUpdates;
+            SpotifyTracker.QueueUpdated -= SendOutQueueUpdates;
 
             Console.WriteLine($"A connection was closed! Reason: {e.Reason}, Code: {e.Code}");
         }
 
         protected override async void OnMessage(MessageEventArgs e)
         {
+            /*
+             * List of the prefixes/commands received from Neos via WebSockets:
+             * 0 - Pause/Resume
+             * 1 - Previous track
+             * 2 - Next track
+             * 3 - Re-request info
+             * 4 - Repeat status change
+             * 5 - Toggle shuffle
+             * 6 - Seek to position
+             * 7 - Add Item to Queue
+            */
             //I'm not going to simply get the playback data on every message received
             //That would be a lot of unneeded requests
             //and I'm already getting ratelimited
-            var commandCode = int.Parse(e.Data[0].ToString());
-            var commandData = e.Data.Substring(1);
+
+            var dividerIndex = e.Data.IndexOf('|');
+
+            int dataStart;
+            SpotifyCommand commandCode;
+
+            if (dividerIndex >= 0 && int.TryParse(e.Data[..dividerIndex], out var result))
+            {
+                commandCode = (SpotifyCommand)result;
+                dataStart = dividerIndex + 1;
+            }
+            else if (int.TryParse(e.Data[..1], out result))
+            {
+                dataStart = 1;
+                commandCode = (SpotifyCommand)result;
+            }
+            else
+            {
+                Console.WriteLine("Invalid Command received!");
+                Console.WriteLine(e.Data);
+
+                return;
+            }
+
+            var updateQueue = false;
+            var commandData = e.Data[dataStart..];
+
             Console.WriteLine($"Command {commandCode} received, data: {commandData}");
+
             try
             {
                 switch (commandCode)
                 {
-                    case 0:
+                    case SpotifyCommand.TogglePlayback:
                         if (lastPlayingContext != null && lastPlayingContext.IsPlaying)
                         {
                             await SpotifyTracker.Spotify.Player.PausePlayback();
@@ -89,19 +129,22 @@ namespace NeosSpotifyStatus
                         }
                         break;
 
-                    case 1:
+                    case SpotifyCommand.Previous:
+                        updateQueue = true;
                         await SpotifyTracker.Spotify.Player.SkipPrevious();
                         break;
 
-                    case 2:
+                    case SpotifyCommand.Next:
+                        updateQueue = true;
                         await SpotifyTracker.Spotify.Player.SkipNext();
                         break;
 
-                    case 3:
+                    case SpotifyCommand.Refresh:
+                        updateQueue = true;
                         lastPlayingContext = null;
                         break;
 
-                    case 4:
+                    case SpotifyCommand.CycleRepeat:
                         if (lastPlayingContext != null)
                         {
                             var targetState = SpotifyHelper.GetState(lastPlayingContext.RepeatState).Next();
@@ -114,40 +157,40 @@ namespace NeosSpotifyStatus
                         }
                         break;
 
-                    case 5:
+                    case SpotifyCommand.ToggleShuffle:
                         var playback2 = await SpotifyTracker.Spotify.Player.GetCurrentPlayback();
-                        if (playback2 == null)
+                        if (playback2 is null)
                         {
                             Console.WriteLine("No playback detected!");
                             break;
                         }
-                        bool doShuffle;
-                        if (playback2.ShuffleState)
-                        {
-                            doShuffle = false;
-                        }
-                        else
-                        {
-                            doShuffle = true;
-                        }
+
+                        updateQueue = true;
+                        var doShuffle = !playback2.ShuffleState;
                         var shuffleRequest = new PlayerShuffleRequest(doShuffle);
                         await SpotifyTracker.Spotify.Player.SetShuffle(shuffleRequest);
                         break;
 
-                    case 6:
+                    case SpotifyCommand.SeekPlayback:
                         var seekRequest = new PlayerSeekToRequest(int.Parse(commandData));
                         await SpotifyTracker.Spotify.Player.SeekTo(seekRequest);
                         break;
 
-                    case 7:
+                    case SpotifyCommand.QueueItem:
                         var match = spotifyUriEx.Match(commandData);
                         if (!match.Success)
                             break;
 
-                        var addRequest = new PlayerAddToQueueRequest($"spotify:{match.Groups[1]}:{match.Groups[2]}");
+                        updateQueue = true;
+                        var addRequest = new PlayerAddToQueueRequest($"spotify:{match.Groups[2]}:{match.Groups[3]}");
                         await SpotifyTracker.Spotify.Player.AddToQueue(addRequest);
+
                         // Send parse / add confirmation?
                         // Maybe general toast command
+                        break;
+
+                    default:
+                        Console.WriteLine("Unknown Command");
                         break;
                 }
             }
@@ -158,17 +201,21 @@ namespace NeosSpotifyStatus
 
             await Task.Delay(500);
 
-            SpotifyTracker.Update();
+            SpotifyTracker.UpdatePlaybackAsync();
+
+            if (updateQueue)
+                SpotifyTracker.UpdateQueueAsync();
         }
 
         protected override void OnOpen()
         {
-            SpotifyTracker.ContextUpdated += sendOutUpdates;
+            SpotifyTracker.PlayingContextUpdated += sendOutContextUpdates;
+            SpotifyTracker.QueueUpdated += SendOutQueueUpdates;
 
             Console.WriteLine("New connection opened, list of sessions:");
             Console.WriteLine($"    {string.Join(Environment.NewLine + "    ", Sessions.ActiveIDs)}");
 
-            Task.Run(() => SpotifyTracker.Update());
+            Task.Run(() => SpotifyTracker.UpdatePlaybackAsync());
         }
 
         private void handleChangedBool(SpotifyInfo info, bool value)
@@ -193,21 +240,75 @@ namespace NeosSpotifyStatus
             //sendMessage(info | SpotifyInfo.ResourceUri, string.Join(", ", resources.Select(res => res.Uri)));
         }
 
-        private void sendMessage(SpotifyInfo info, string data)
+        private void sendMessage(SpotifyInfo info, string data = "")
         {
-            Console.WriteLine($"Sending {info.ToUpdateInt()}{data} to {ID}");
-            Task.Run(() => Send($"{info.ToUpdateInt()}{data}"));
+            var message = $"{info.ToUpdateInt()}|{data}";
+
+            Console.WriteLine($"Sending {message} to {ID}");
+            Task.Run(() => Send(message));
         }
 
-        private void sendOutUpdates(CurrentlyPlayingContext newPlayingContext)
+        private void sendOutContextUpdates(CurrentlyPlayingContext newPlayingContext)
         {
-            foreach (var changeTracker in changeTrackers.Where(changeTracker => lastPlayingContext == null || changeTracker.TestChanged(lastPlayingContext, newPlayingContext)))
+            foreach (var changeTracker in contextChangeTrackers.Where(changeTracker => lastPlayingContext == null || changeTracker.TestChanged(lastPlayingContext, newPlayingContext)))
                 changeTracker.InvokeEvent(newPlayingContext);
 
             lastPlayingContext = newPlayingContext;
         }
 
-        private class ChangeTracker
+        private void SendOutQueueUpdates(List<IPlayableItem> updatedQueue)
+        {
+            if (updatedQueue.Count == 0)
+            {
+                lastQueue.Clear();
+                sendMessage(SpotifyInfo.ClearQueue);
+
+                return;
+            }
+
+            for (var i = 0; i < updatedQueue.Count; ++i)
+            {
+                var item = updatedQueue[i];
+            }
+
+            var newQueue = updatedQueue.Select((playable, idx) => (Resource: playable.GetResource(), Data: (Playable: playable, Index: idx)))
+                .ToDictionary(item => item.Resource, item => item.Data);
+
+            // deleted or moved
+            foreach (var lastQueueItem in lastQueue)
+            {
+                if (newQueue.TryGetValue(lastQueueItem.Key, out var newData))
+                {
+                    sendMessage(SpotifyInfo.QueuePositionShift,
+                        $"{lastQueueItem.Value.ToString(CultureInfo.InvariantCulture)}|{newData.Index.ToString(CultureInfo.InvariantCulture)}");
+                }
+                else
+                {
+                    sendMessage(SpotifyInfo.ClearQueue, lastQueueItem.Value.ToString(CultureInfo.InvariantCulture));
+                }
+            }
+
+            foreach (var newQueueItem in newQueue)
+            {
+                // Already handled by position shifts on other loop
+                if (lastQueue.ContainsKey(newQueueItem.Key))
+                    continue;
+
+                var item = newQueueItem.Value.Playable;
+
+                handleChangedResource(SpotifyInfo.QueuedPlayable, item.GetResource());
+                handleChangedResources(SpotifyInfo.QueuedCreator, item.GetCreators());
+                sendMessage(SpotifyInfo.QueuedCover, item.GetCover());
+                handleChangedResource(SpotifyInfo.QueuedGrouping, item.GetGrouping());
+                handleChangedInt(SpotifyInfo.QueuedPosition, newQueueItem.Value.Index);
+
+                sendMessage(SpotifyInfo.QueuedComplete);
+            }
+
+            sendMessage(SpotifyInfo.QueueUpdated);
+        }
+
+        private sealed class ChangeTracker
         {
             public Action<CurrentlyPlayingContext> InvokeEvent { get; }
 
@@ -219,17 +320,5 @@ namespace NeosSpotifyStatus
                 TestChanged = testChanged;
             }
         }
-
-        /*
-         * List of the prefixes/commands received from Neos via WebSockets:
-         * 0 - Pause/Resume
-         * 1 - Previous track
-         * 2 - Next track
-         * 3 - Re-request info
-         * 4 - Repeat status change
-         * 5 - Toggle shuffle
-         * 6 - Seek to position
-         * 7 - Add Item to Queue
-        */
     }
 }
