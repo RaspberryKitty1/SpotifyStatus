@@ -110,7 +110,8 @@ namespace SpotifyStatus
 
             var tokenResponse = await oAuthClient.RequestToken(
               new AuthorizationCodeTokenRequest(
-                Config.ClientId, Config.ClientSecret, code, new Uri("http://localhost:5000/callback")
+
+                Config.ClientId, Config.ClientSecret, code, new Uri("http://localhost:" + Config.CallbackPort + "/callback")
               )
             );
 
@@ -150,7 +151,7 @@ namespace SpotifyStatus
             }
             catch (HttpRequestException)
             {
-                Task.Run(async () =>
+                await Task.Run(async () =>
                 {
                     await Task.Delay(60000);
                     handleAuthorization();
