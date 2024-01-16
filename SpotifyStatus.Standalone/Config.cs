@@ -19,11 +19,11 @@ namespace SpotifyStatus
         private static readonly FileIniDataParser parser = new FileIniDataParser();
         private static string refreshToken;
 
+        public static int CallbackPort { get; }
         public static string ClientId { get; }
         public static string ClientSecret { get; }
         public static bool Loaded { get; }
         public static int Port { get; }
-        public static int CallbackPort { get; }
 
         public static string RefreshToken
         {
@@ -67,7 +67,7 @@ namespace SpotifyStatus
                 File.Move(configFile, ConfigBackupFile);
 
             using var configFileStream = File.Create(configFile);
-            var defaultConfigStream = Assembly.GetExecutingAssembly().GetManifestResourceStream("NeosSpotifyStatus." + configFile);
+            var defaultConfigStream = Assembly.GetExecutingAssembly().GetManifestResourceStream("SpotifyStatus.Standalone." + configFile);
             defaultConfigStream.CopyTo(configFileStream);
         }
     }

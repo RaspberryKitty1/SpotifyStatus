@@ -75,11 +75,7 @@ namespace SpotifyStatus
                 return;
             }
 
-            if (!currentPlayback.Item.GetResource().Equals(lastItem))
-            {
-                lastItem = currentPlayback.Item.GetResource();
-                UpdateQueueAsync();
-            }
+            UpdateQueueAsync();
 
             PlayingContextUpdated?.Invoke(currentPlayback);
 

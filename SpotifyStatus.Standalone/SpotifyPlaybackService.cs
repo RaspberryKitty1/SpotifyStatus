@@ -9,25 +9,26 @@ using SpotifyAPI.Web;
 using System.Text.RegularExpressions;
 using System.Globalization;
 using SpotifyStatus.Standalone;
+using static SpotifyAPI.Web.PlaylistRemoveItemsRequest;
 
 namespace SpotifyStatus
 {
-    internal sealed class SpotifyPlaybackService : WebSocketBehavior
+    internal sealed partial class SpotifyPlaybackService : WebSocketBehavior
     {
-        private static readonly Regex spotifyUriEx = new(@"(?:spotify:|https?:\/\/open\.spotify\.com(\/.*)+?)(episode|track)[:\/]([0-9A-z]+)");
+        private static readonly Regex SpotifyUriEx = SpotifyUri();
 
         private readonly List<ChangeTracker> contextChangeTrackers;
         private CurrentlyPlayingContext lastPlayingContext;
-        private Dictionary<SpotifyResource, int> lastQueue = new();
+        private Dictionary<SpotifyResource, int[]> lastQueue = new();
 
         public SpotifyPlaybackService()
         {
             contextChangeTrackers = new List<ChangeTracker>()
             {
-                new ChangeTracker(nC => handleChangedResource(SpotifyInfo.Playable, nC.Item.GetResource()),
+                new ChangeTracker(nC => HandleChangedResource(SpotifyInfo.Playable, nC.Item.GetResource()),
                     (oC, nC) => !oC.Item.GetResource().Equals(nC.Item.GetResource())),
 
-                new ChangeTracker(nC => handleChangedResources(SpotifyInfo.Creator, nC.Item.GetCreators()),
+                new ChangeTracker(nC => HandleChangedResources(SpotifyInfo.Creator, nC.Item.GetCreators()),
                     (oC, nC) =>
                     {
                         var oCreators = oC.Item.GetCreators();
@@ -38,32 +39,32 @@ namespace SpotifyStatus
                         || nCreators.Except(oCreators).Any();
                     }),
 
-                new ChangeTracker(nC => sendMessage(SpotifyInfo.Cover, nC.Item.GetCover()),
+                new ChangeTracker(nC => SendMessage(SpotifyInfo.Cover, nC.Item.GetCover()),
                     (oC, nC) => oC.Item.GetCover() != nC.Item.GetCover()),
 
-                new ChangeTracker(nC => handleChangedResource(SpotifyInfo.Grouping, nC.Item.GetGrouping()),
+                new ChangeTracker(nC => HandleChangedResource(SpotifyInfo.Grouping, nC.Item.GetGrouping()),
                     (oC, nC) => !oC.Item.GetGrouping().Equals(nC.Item.GetGrouping())),
 
-                new ChangeTracker(nC => handleChangedInt(SpotifyInfo.Progress, nC.ProgressMs),
+                new ChangeTracker(nC => HandleChangedInt(SpotifyInfo.Progress, nC.ProgressMs),
                     (oC, nC) => oC.ProgressMs != nC.ProgressMs),
 
-                new ChangeTracker(nC => handleChangedInt(SpotifyInfo.Duration, nC.Item.GetDuration()),
+                new ChangeTracker(nC => HandleChangedInt(SpotifyInfo.Duration, nC.Item.GetDuration()),
                     (oC, nC) => oC.Item.GetDuration() != nC.Item.GetDuration()),
 
-                new ChangeTracker(nC => handleChangedBool(SpotifyInfo.IsPlaying, nC.IsPlaying),
+                new ChangeTracker(nC => HandleChangedBool(SpotifyInfo.IsPlaying, nC.IsPlaying),
                     (oC, nC) => oC.IsPlaying != nC.IsPlaying),
 
-                new ChangeTracker(nC => handleChangedInt(SpotifyInfo.RepeatState, (int)SpotifyHelper.GetState(nC.RepeatState)),
+                new ChangeTracker(nC => HandleChangedInt(SpotifyInfo.RepeatState, (int)SpotifyHelper.GetState(nC.RepeatState)),
                     (oC, nC) => oC.RepeatState != nC.RepeatState),
 
-                new ChangeTracker(nC => handleChangedBool(SpotifyInfo.IsShuffled, nC.ShuffleState),
+                new ChangeTracker(nC => HandleChangedBool(SpotifyInfo.IsShuffled, nC.ShuffleState),
                     (oC, nC) => oC.ShuffleState != nC.ShuffleState),
             };
         }
 
         protected override void OnClose(CloseEventArgs e)
         {
-            SpotifyTracker.PlayingContextUpdated -= sendOutContextUpdates;
+            SpotifyTracker.PlayingContextUpdated -= SendOutContextUpdates;
             SpotifyTracker.QueueUpdated -= SendOutQueueUpdates;
 
             Console.WriteLine($"A connection was closed! Reason: {e.Reason}, Code: {e.Code}");
@@ -71,17 +72,6 @@ namespace SpotifyStatus
 
         protected override async void OnMessage(MessageEventArgs e)
         {
-            /*
-             * List of the prefixes/commands received from Neos via WebSockets:
-             * 0 - Pause/Resume
-             * 1 - Previous track
-             * 2 - Next track
-             * 3 - Re-request info
-             * 4 - Repeat status change
-             * 5 - Toggle shuffle
-             * 6 - Seek to position
-             * 7 - Add Item to Queue
-            */
             //I'm not going to simply get the playback data on every message received
             //That would be a lot of unneeded requests
             //and I'm already getting ratelimited
@@ -110,6 +100,7 @@ namespace SpotifyStatus
             }
 
             var updateQueue = false;
+            var updatePlayback = true;
             var commandData = e.Data[dataStart..];
 
             Console.WriteLine($"Command {commandCode} received, data: {commandData}");
@@ -120,9 +111,7 @@ namespace SpotifyStatus
                 {
                     case SpotifyCommand.TogglePlayback:
                         if (lastPlayingContext != null && lastPlayingContext.IsPlaying)
-                        {
                             await SpotifyTracker.Spotify.Player.PausePlayback();
-                        }
                         else
                         {
                             await SpotifyTracker.Spotify.Player.ResumePlayback();
@@ -141,20 +130,23 @@ namespace SpotifyStatus
 
                     case SpotifyCommand.Refresh:
                         updateQueue = true;
+                        lastQueue.Clear();
+                        SendMessage(SpotifyInfo.ClearQueue);
+
                         lastPlayingContext = null;
                         break;
 
                     case SpotifyCommand.CycleRepeat:
-                        if (lastPlayingContext != null)
-                        {
-                            var targetState = SpotifyHelper.GetState(lastPlayingContext.RepeatState).Next();
+                        if (lastPlayingContext is null)
+                            break;
 
-                            if (int.TryParse(commandData, out var repeatNum))
-                                targetState = (PlayerSetRepeatRequest.State)repeatNum;
+                        var targetState = SpotifyHelper.GetState(lastPlayingContext.RepeatState).Next();
 
-                            var repeatRequest = new PlayerSetRepeatRequest(targetState);
-                            await SpotifyTracker.Spotify.Player.SetRepeat(repeatRequest);
-                        }
+                        if (int.TryParse(commandData, out var repeatNum))
+                            targetState = (PlayerSetRepeatRequest.State)repeatNum;
+
+                        var repeatRequest = new PlayerSetRepeatRequest(targetState);
+                        await SpotifyTracker.Spotify.Player.SetRepeat(repeatRequest);
                         break;
 
                     case SpotifyCommand.ToggleShuffle:
@@ -177,16 +169,26 @@ namespace SpotifyStatus
                         break;
 
                     case SpotifyCommand.QueueItem:
-                        var match = spotifyUriEx.Match(commandData);
+                        var match = SpotifyUriEx.Match(commandData);
                         if (!match.Success)
                             break;
 
                         updateQueue = true;
+                        updatePlayback = false;
+
                         var addRequest = new PlayerAddToQueueRequest($"spotify:{match.Groups[2]}:{match.Groups[3]}");
                         await SpotifyTracker.Spotify.Player.AddToQueue(addRequest);
 
                         // Send parse / add confirmation?
                         // Maybe general toast command
+                        break;
+
+                    case SpotifyCommand.Search:
+                        updatePlayback = false;
+
+                        if (!await Search(commandData))
+                            Console.WriteLine("Invalid Search Request");
+
                         break;
 
                     default:
@@ -201,7 +203,8 @@ namespace SpotifyStatus
 
             await Task.Delay(500);
 
-            SpotifyTracker.UpdatePlaybackAsync();
+            if (updatePlayback)
+                SpotifyTracker.UpdatePlaybackAsync();
 
             if (updateQueue)
                 SpotifyTracker.UpdateQueueAsync();
@@ -209,7 +212,7 @@ namespace SpotifyStatus
 
         protected override void OnOpen()
         {
-            SpotifyTracker.PlayingContextUpdated += sendOutContextUpdates;
+            SpotifyTracker.PlayingContextUpdated += SendOutContextUpdates;
             SpotifyTracker.QueueUpdated += SendOutQueueUpdates;
 
             Console.WriteLine("New connection opened, list of sessions:");
@@ -218,29 +221,62 @@ namespace SpotifyStatus
             Task.Run(() => SpotifyTracker.UpdatePlaybackAsync());
         }
 
-        private void handleChangedBool(SpotifyInfo info, bool value)
+        [GeneratedRegex("(?:spotify:|https?:\\/\\/open\\.spotify\\.com(\\/.*)+?)(episode|track)[:\\/]([0-9A-z]+)")]
+        private static partial Regex SpotifyUri();
+
+        private static Queue<T> ToQueue<T>(IEnumerable<T> items) => new(items);
+
+        private void HandleChangedBool(SpotifyInfo info, bool value)
         {
-            sendMessage(info, value.ToString(CultureInfo.InvariantCulture));
+            SendMessage(info, value.ToString(CultureInfo.InvariantCulture));
         }
 
-        private void handleChangedInt(SpotifyInfo info, int value)
+        private void HandleChangedInt(SpotifyInfo info, int value)
         {
-            sendMessage(info, value.ToString(CultureInfo.InvariantCulture));
+            SendMessage(info, value.ToString(CultureInfo.InvariantCulture));
         }
 
-        private void handleChangedResource(SpotifyInfo info, SpotifyResource resource)
+        private void HandleChangedResource(SpotifyInfo info, SpotifyResource resource)
         {
-            sendMessage(info, $"{resource.Uri}|{resource.Name}");
+            SendMessage(info, $"{resource.Uri}|{resource.Name}");
             //sendMessage(info | SpotifyInfo.ResourceUri, resource.Uri);
         }
 
-        private void handleChangedResources(SpotifyInfo info, IEnumerable<SpotifyResource> resources)
+        private void HandleChangedResources(SpotifyInfo info, IEnumerable<SpotifyResource> resources)
         {
-            sendMessage(info, string.Join("\n", resources.Select(res => $"{res.Uri}|{res.Name}")));
+            SendMessage(info, string.Join("\n", resources.Select(res => $"{res.Uri}|{res.Name}")));
             //sendMessage(info | SpotifyInfo.ResourceUri, string.Join(", ", resources.Select(res => res.Uri)));
         }
 
-        private void sendMessage(SpotifyInfo info, string data = "")
+        private async Task<bool> Search(string request)
+        {
+            // Should be "limit|types|offset|query"
+            var split = request.Split('|');
+
+            if (split.Length != 4)
+                return false;
+
+            if (!int.TryParse(split[0], out var limit))
+                return false;
+
+            var types = SearchRequest.Types.Track;
+
+            if (!int.TryParse(split[2], out var offset))
+                return false;
+
+            var searchRequest = new SearchRequest(types, split[3])
+            {
+                Limit = limit,
+                Offset = offset
+            };
+
+            var searchResponse = await SpotifyTracker.Spotify.Search.Item(searchRequest);
+            Console.WriteLine($"Search results: {string.Join(", ", searchResponse.Tracks.Items.Select(track => track.Name))}");
+
+            return true;
+        }
+
+        private void SendMessage(SpotifyInfo info, string data = "")
         {
             var message = $"{info.ToUpdateInt()}|{data}";
 
@@ -248,7 +284,7 @@ namespace SpotifyStatus
             Task.Run(() => Send(message));
         }
 
-        private void sendOutContextUpdates(CurrentlyPlayingContext newPlayingContext)
+        private void SendOutContextUpdates(CurrentlyPlayingContext newPlayingContext)
         {
             foreach (var changeTracker in contextChangeTrackers.Where(changeTracker => lastPlayingContext == null || changeTracker.TestChanged(lastPlayingContext, newPlayingContext)))
                 changeTracker.InvokeEvent(newPlayingContext);
@@ -261,51 +297,87 @@ namespace SpotifyStatus
             if (updatedQueue.Count == 0)
             {
                 lastQueue.Clear();
-                sendMessage(SpotifyInfo.ClearQueue);
+                SendMessage(SpotifyInfo.ClearQueue);
 
                 return;
             }
 
-            for (var i = 0; i < updatedQueue.Count; ++i)
-            {
-                var item = updatedQueue[i];
-            }
+            var newQueue = updatedQueue.Select((playable, idx) => (Resource: playable.GetResource(), Playable: playable, Index: idx))
+                .GroupBy(item => item.Resource)
+                .ToDictionary(group => group.Key, group =>
+                {
+                    var indices = group.Select(item => item.Index).Order().ToArray();
+                    return (group.First().Playable, Indices: indices, Remaining: ToQueue(indices));
+                });
 
-            var newQueue = updatedQueue.Select((playable, idx) => (Resource: playable.GetResource(), Data: (Playable: playable, Index: idx)))
-                .ToDictionary(item => item.Resource, item => item.Data);
+            var updated = false;
 
             // deleted or moved
             foreach (var lastQueueItem in lastQueue)
             {
-                if (newQueue.TryGetValue(lastQueueItem.Key, out var newData))
+                if (newQueue.TryGetValue(lastQueueItem.Key, out var newItems))
                 {
-                    sendMessage(SpotifyInfo.QueuePositionShift,
-                        $"{lastQueueItem.Value.ToString(CultureInfo.InvariantCulture)}|{newData.Index.ToString(CultureInfo.InvariantCulture)}");
+                    for (var i = 0; i < lastQueueItem.Value.Length; ++i)
+                    {
+                        var oldIndex = lastQueueItem.Value[i];
+
+                        // If no remaining new items, delete it
+                        if (newItems.Remaining.Count == 0)
+                        {
+                            updated = true;
+                            SendMessage(SpotifyInfo.ClearQueue, oldIndex.ToString(CultureInfo.InvariantCulture));
+                            continue;
+                        }
+
+                        // Otherwise move it
+                        var newIndex = newItems.Remaining.Dequeue();
+
+                        if (newIndex != oldIndex)
+                        {
+                            updated = true;
+                            SendMessage(SpotifyInfo.QueuePositionShift,
+                                $"{oldIndex.ToString(CultureInfo.InvariantCulture)}|{newIndex.ToString(CultureInfo.InvariantCulture)}");
+                        }
+                    }
                 }
                 else
                 {
-                    sendMessage(SpotifyInfo.ClearQueue, lastQueueItem.Value.ToString(CultureInfo.InvariantCulture));
+                    // If no new item at all, delete it
+                    for (var i = 0; i < lastQueueItem.Value.Length; ++i)
+                    {
+                        updated = true;
+                        SendMessage(SpotifyInfo.ClearQueue, lastQueueItem.Value[i].ToString(CultureInfo.InvariantCulture));
+                    }
                 }
             }
 
-            foreach (var newQueueItem in newQueue)
+            foreach (var (Playable, _, Remaining) in newQueue.Values)
             {
-                // Already handled by position shifts on other loop
-                if (lastQueue.ContainsKey(newQueueItem.Key))
+                // Already covered all new ones by position shifts from old
+                if (Remaining.Count == 0)
                     continue;
 
-                var item = newQueueItem.Value.Playable;
+                updated = true;
 
-                handleChangedResource(SpotifyInfo.QueuedPlayable, item.GetResource());
-                handleChangedResources(SpotifyInfo.QueuedCreator, item.GetCreators());
-                sendMessage(SpotifyInfo.QueuedCover, item.GetCover());
-                handleChangedResource(SpotifyInfo.QueuedGrouping, item.GetGrouping());
-                handleChangedInt(SpotifyInfo.QueuedPosition, newQueueItem.Value.Index);
-
-                sendMessage(SpotifyInfo.QueuedComplete);
+                foreach (var newIndex in Remaining)
+                    SendQueuedItem(Playable, newIndex);
             }
 
-            sendMessage(SpotifyInfo.QueueUpdated);
+            if (updated)
+                SendMessage(SpotifyInfo.QueueUpdated);
+
+            lastQueue = newQueue.ToDictionary(group => group.Key, group => group.Value.Indices);
+        }
+
+        private void SendQueuedItem(IPlayableItem playable, int index)
+        {
+            HandleChangedResource(SpotifyInfo.QueuedPlayable, playable.GetResource());
+            HandleChangedResources(SpotifyInfo.QueuedCreator, playable.GetCreators());
+            SendMessage(SpotifyInfo.QueuedCover, playable.GetCover());
+            HandleChangedResource(SpotifyInfo.QueuedGrouping, playable.GetGrouping());
+            HandleChangedInt(SpotifyInfo.QueuedPosition, index);
+
+            SendMessage(SpotifyInfo.QueuedComplete);
         }
 
         private sealed class ChangeTracker

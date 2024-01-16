@@ -62,5 +62,10 @@ namespace SpotifyStatus.Standalone
         /// Adds an item to the queue.
         /// </summary>
         QueueItem = 7,
+
+        /// <summary>
+        /// Searches Spotify for different items.
+        /// </summary>
+        Search = 8,
     }
 }
