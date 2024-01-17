@@ -9,7 +9,6 @@ using SpotifyAPI.Web;
 using System.Text.RegularExpressions;
 using System.Globalization;
 using SpotifyStatus.Standalone;
-using static SpotifyAPI.Web.PlaylistRemoveItemsRequest;
 
 namespace SpotifyStatus
 {
@@ -17,13 +16,13 @@ namespace SpotifyStatus
     {
         private static readonly Regex SpotifyUriEx = SpotifyUri();
 
-        private readonly List<ChangeTracker> contextChangeTrackers;
-        private CurrentlyPlayingContext lastPlayingContext;
-        private Dictionary<SpotifyResource, int[]> lastQueue = new();
+        private readonly List<ChangeTracker> _contextChangeTrackers;
+        private CurrentlyPlayingContext _lastPlayingContext;
+        private Dictionary<SpotifyResource, int[]> _lastQueue = new();
 
         public SpotifyPlaybackService()
         {
-            contextChangeTrackers = new List<ChangeTracker>()
+            _contextChangeTrackers = new List<ChangeTracker>()
             {
                 new ChangeTracker(nC => HandleChangedResource(SpotifyInfo.Playable, nC.Item.GetResource()),
                     (oC, nC) => !oC.Item.GetResource().Equals(nC.Item.GetResource())),
@@ -110,7 +109,7 @@ namespace SpotifyStatus
                 switch (commandCode)
                 {
                     case SpotifyCommand.TogglePlayback:
-                        if (lastPlayingContext != null && lastPlayingContext.IsPlaying)
+                        if (_lastPlayingContext != null && _lastPlayingContext.IsPlaying)
                             await SpotifyTracker.Spotify.Player.PausePlayback();
                         else
                         {
@@ -130,17 +129,17 @@ namespace SpotifyStatus
 
                     case SpotifyCommand.Refresh:
                         updateQueue = true;
-                        lastQueue.Clear();
+                        _lastQueue.Clear();
                         SendMessage(SpotifyInfo.ClearQueue);
 
-                        lastPlayingContext = null;
+                        _lastPlayingContext = null;
                         break;
 
                     case SpotifyCommand.CycleRepeat:
-                        if (lastPlayingContext is null)
+                        if (_lastPlayingContext is null)
                             break;
 
-                        var targetState = SpotifyHelper.GetState(lastPlayingContext.RepeatState).Next();
+                        var targetState = SpotifyHelper.GetState(_lastPlayingContext.RepeatState).Next();
 
                         if (int.TryParse(commandData, out var repeatNum))
                             targetState = (PlayerSetRepeatRequest.State)repeatNum;
@@ -218,6 +217,7 @@ namespace SpotifyStatus
             Console.WriteLine("New connection opened, list of sessions:");
             Console.WriteLine($"    {string.Join(Environment.NewLine + "    ", Sessions.ActiveIDs)}");
 
+            SendMessage(SpotifyInfo.ClearQueue);
             Task.Run(() => SpotifyTracker.UpdatePlaybackAsync());
         }
 
@@ -286,17 +286,17 @@ namespace SpotifyStatus
 
         private void SendOutContextUpdates(CurrentlyPlayingContext newPlayingContext)
         {
-            foreach (var changeTracker in contextChangeTrackers.Where(changeTracker => lastPlayingContext == null || changeTracker.TestChanged(lastPlayingContext, newPlayingContext)))
+            foreach (var changeTracker in _contextChangeTrackers.Where(changeTracker => _lastPlayingContext == null || changeTracker.TestChanged(_lastPlayingContext, newPlayingContext)))
                 changeTracker.InvokeEvent(newPlayingContext);
 
-            lastPlayingContext = newPlayingContext;
+            _lastPlayingContext = newPlayingContext;
         }
 
         private void SendOutQueueUpdates(List<IPlayableItem> updatedQueue)
         {
             if (updatedQueue.Count == 0)
             {
-                lastQueue.Clear();
+                _lastQueue.Clear();
                 SendMessage(SpotifyInfo.ClearQueue);
 
                 return;
@@ -313,7 +313,7 @@ namespace SpotifyStatus
             var updated = false;
 
             // deleted or moved
-            foreach (var lastQueueItem in lastQueue)
+            foreach (var lastQueueItem in _lastQueue)
             {
                 if (newQueue.TryGetValue(lastQueueItem.Key, out var newItems))
                 {
@@ -366,7 +366,7 @@ namespace SpotifyStatus
             if (updated)
                 SendMessage(SpotifyInfo.QueueUpdated);
 
-            lastQueue = newQueue.ToDictionary(group => group.Key, group => group.Value.Indices);
+            _lastQueue = newQueue.ToDictionary(group => group.Key, group => group.Value.Indices);
         }
 
         private void SendQueuedItem(IPlayableItem playable, int index)
