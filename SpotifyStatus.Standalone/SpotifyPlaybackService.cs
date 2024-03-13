@@ -376,6 +376,7 @@ namespace SpotifyStatus
             SendMessage(SpotifyInfo.QueuedCover, playable.GetCover());
             HandleChangedResource(SpotifyInfo.QueuedGrouping, playable.GetGrouping());
             HandleChangedInt(SpotifyInfo.QueuedPosition, index);
+            HandleChangedInt(SpotifyInfo.QueuedDuration, playable.GetDuration());
 
             SendMessage(SpotifyInfo.QueuedComplete);
         }

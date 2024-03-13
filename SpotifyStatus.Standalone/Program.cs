@@ -8,7 +8,7 @@ internal class Program
 {
     private static void Main()
     {
-        Console.Title = "Neos Spotify Status";
+        Console.Title = "Spotify Status";
 
         if (File.Exists(Config.ConfigBackupFile))
         {
