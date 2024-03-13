@@ -27,7 +27,8 @@ namespace SpotifyStatus
                 new ChangeTracker(nC =>
                     {
                         HandleChangedResource(SpotifyInfo.Playable, nC.Item.GetResource());
-                        nC.Item.SendSongCanvasAsync(SendMessage);
+                        nC.Item.SendCanvasAsync(SendMessage);
+                        nC.Item.SendLyricsAsync(SendMessage);
                     },
                     (oC, nC) => !oC.Item.GetResource().Equals(nC.Item.GetResource())),
 

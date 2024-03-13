@@ -140,5 +140,15 @@ namespace SpotifyStatus
         /// The current playable's background clip, if any.
         /// </summary>
         Canvas = 1 << 20,
+
+        /// <summary>
+        /// Clear lyrics.
+        /// </summary>
+        ClearLyrics = 1 << 21,
+
+        /// <summary>
+        /// A line of the lyrics.
+        /// </summary>
+        LyricsLine = 1 << 22,
     }
 }
