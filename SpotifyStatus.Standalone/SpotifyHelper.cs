@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
 using SpotifyAPI.Web;
@@ -15,6 +16,8 @@ namespace SpotifyStatus
             { "context", PlayerSetRepeatRequest.State.Context },
             { "off", PlayerSetRepeatRequest.State.Off }
         };
+
+        private static readonly HttpClient _trackCanvasClient = new();
 
         public static string GetCover(this IPlayableItem playableItem)
         {
@@ -79,6 +82,30 @@ namespace SpotifyStatus
         public static int ToUpdateInt(this SpotifyInfo info)
         {
             return info == SpotifyInfo.Clear ? 0 : ((int)Math.Log2((int)info) + 1);
+        }
+
+        public static string GetId(this IPlayableItem playableItem)
+        {
+            return playableItem switch
+            {
+                FullTrack track => track.Id,
+                FullEpisode episode => episode.Id,
+                _ => null
+            };
+        }
+
+        public static async void SendSongCanvasAsync(this IPlayableItem playableItem, Action<SpotifyInfo, string> sendMessage)
+        {
+            var id = playableItem.GetId();
+            if (string.IsNullOrEmpty(id))
+                return;
+
+            var canvasUrl = await _trackCanvasClient.GetStringAsync($"https://spotify-canvas-api-weld.vercel.app/spotify?id={id}");
+
+            if (string.IsNullOrWhiteSpace(canvasUrl))
+                return;
+
+            sendMessage(SpotifyInfo.Canvas, canvasUrl);
         }
     }
 }

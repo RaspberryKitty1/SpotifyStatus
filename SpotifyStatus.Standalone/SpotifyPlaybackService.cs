@@ -14,7 +14,7 @@ namespace SpotifyStatus
 {
     internal sealed partial class SpotifyPlaybackService : WebSocketBehavior
     {
-        private static readonly Regex SpotifyUriEx = SpotifyUri();
+        private static readonly Regex _spotifyUriEx = SpotifyUri();
 
         private readonly List<ChangeTracker> _contextChangeTrackers;
         private CurrentlyPlayingContext _lastPlayingContext;
@@ -24,7 +24,11 @@ namespace SpotifyStatus
         {
             _contextChangeTrackers = new List<ChangeTracker>()
             {
-                new ChangeTracker(nC => HandleChangedResource(SpotifyInfo.Playable, nC.Item.GetResource()),
+                new ChangeTracker(nC =>
+                    {
+                        HandleChangedResource(SpotifyInfo.Playable, nC.Item.GetResource());
+                        nC.Item.SendSongCanvasAsync(SendMessage);
+                    },
                     (oC, nC) => !oC.Item.GetResource().Equals(nC.Item.GetResource())),
 
                 new ChangeTracker(nC => HandleChangedResources(SpotifyInfo.Creator, nC.Item.GetCreators()),
@@ -168,7 +172,7 @@ namespace SpotifyStatus
                         break;
 
                     case SpotifyCommand.QueueItem:
-                        var match = SpotifyUriEx.Match(commandData);
+                        var match = _spotifyUriEx.Match(commandData);
                         if (!match.Success)
                             break;
 

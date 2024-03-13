@@ -1,8 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace SpotifyStatus
 {
@@ -28,6 +26,8 @@ namespace SpotifyStatus
      * 17 - Add Queued Item to Display
      * 18 - Queued Item's old and new zero-based position
      * 19 - Queued Items have been updated
+     * 20 - reserved
+     * 21 - Canvas (background video clip)
      */
 
     /// <summary>
@@ -135,5 +135,10 @@ namespace SpotifyStatus
         /// Queued playables have been updated.
         /// </summary>
         QueueUpdated = 1 << 18,
+
+        /// <summary>
+        /// The current playable's background clip, if any.
+        /// </summary>
+        Canvas = 1 << 20,
     }
 }
