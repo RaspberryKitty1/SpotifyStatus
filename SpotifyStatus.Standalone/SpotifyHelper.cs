@@ -103,10 +103,14 @@ namespace SpotifyStatus
 
             try
             {
-                var canvasUrl = await _httpClient.GetStringAsync($"https://spotify-canvas-api-weld.vercel.app/spotify?id={id}");
+                var canvasUrl = await _httpClient.GetStringAsync($"https://spotify-canvas-api-weld.vercel.app/spotify?id=spotify:track:{id}");
 
                 if (string.IsNullOrWhiteSpace(canvasUrl))
+                {
+                    sendMessage(SpotifyInfo.Canvas, "");
+                    Console.WriteLine("No canvas for playable found.");
                     return;
+                }
 
                 sendMessage(SpotifyInfo.Canvas, canvasUrl);
             }

@@ -26,8 +26,9 @@ namespace SpotifyStatus
      * 17 - Add Queued Item to Display
      * 18 - Queued Item's old and new zero-based position
      * 19 - Queued Items have been updated
-     * 20 - reserved
-     * 21 - Canvas (background video clip)
+     * 20 - Clear Lyrics
+     * 21 - Lyrics Line
+     * 22 - Canvas (background video clip)
      */
 
     /// <summary>
@@ -137,18 +138,18 @@ namespace SpotifyStatus
         QueueUpdated = 1 << 18,
 
         /// <summary>
-        /// The current playable's background clip, if any.
-        /// </summary>
-        Canvas = 1 << 20,
-
-        /// <summary>
         /// Clear lyrics.
         /// </summary>
-        ClearLyrics = 1 << 21,
+        ClearLyrics = 1 << 19,
 
         /// <summary>
         /// A line of the lyrics.
         /// </summary>
-        LyricsLine = 1 << 22,
+        LyricsLine = 1 << 20,
+
+        /// <summary>
+        /// The current playable's background clip, if any.
+        /// </summary>
+        Canvas = 1 << 21,
     }
 }
