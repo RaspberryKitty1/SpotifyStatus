@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using SpotifyAPI.Web;
 using WebSocketSharp.Server;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace SpotifyStatus
 {
@@ -22,6 +23,7 @@ namespace SpotifyStatus
         private static DateTime accessExpiry;
         private static AbsoluteTimer.AbsoluteTimer authTimer;
         private static SpotifyResource lastItem;
+        public static bool IsPremium { get; private set; }
         public static CurrentlyPlayingContext LastPlayingContext { get; private set; }
         public static int Listeners => SpotifyServiceHost.Sessions.Count;
 
@@ -75,12 +77,7 @@ namespace SpotifyStatus
                 return;
             }
 
-            var profile = await Spotify.UserProfile.Current();
-
-            if (profile.Product == "premium")
-            {
-                UpdateQueueAsync();
-            }
+            UpdateQueueAsync();
 
             PlayingContextUpdated?.Invoke(currentPlayback);
 
@@ -92,6 +89,10 @@ namespace SpotifyStatus
 
         public static async void UpdateQueueAsync()
         {
+            // Not allowed for non-premium
+            if (!IsPremium)
+                return;
+
             var currentQueue = await Spotify.Player.GetQueue();
 
             if (currentQueue == null || currentQueue.Queue == null)
@@ -149,6 +150,9 @@ namespace SpotifyStatus
 
                 authTimer?.Dispose();
                 authTimer = new AbsoluteTimer.AbsoluteTimer(refreshAt, handleAuthorization, null);
+
+                var profile = await Spotify.UserProfile.Current();
+                IsPremium = "premium".Equals(profile.Product, StringComparison.OrdinalIgnoreCase);
             }
             catch (HttpRequestException)
             {
