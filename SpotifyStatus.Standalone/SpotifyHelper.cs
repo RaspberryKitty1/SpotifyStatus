@@ -32,12 +32,16 @@ namespace SpotifyStatus
 
         public static string GetCover(this IPlayableItem playableItem)
         {
-            return playableItem switch
+            var images = playableItem switch
             {
-                FullTrack track => track.Album.Images[0].Url,
-                FullEpisode episode => episode.Images[0].Url,
+                FullTrack track => track.Album.Images,
+                FullEpisode episode => episode.Images,
                 _ => null
             };
+
+            return (images?.Any() ?? false)
+                ? images[0].Url
+                : "resdb:///8628919aed23e739dc24a5e2d762730295164403f55ad63cf95aeb6cc176188f.png";
         }
 
         public static IEnumerable<SpotifyResource> GetCreators(this IPlayableItem playableItem)
