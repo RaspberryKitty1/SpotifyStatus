@@ -19,7 +19,7 @@ namespace SpotifyStatus
         {
             authorizationReceived.Reset();
 
-            server = new EmbedIOAuthServer(new Uri("http://localhost:" + Config.CallbackPort + "/callback"), Config.CallbackPort);
+            server = new EmbedIOAuthServer(new Uri("http://127.0.0.1:" + Config.CallbackPort + "/callback"), Config.CallbackPort);
             await server.Start();
 
             server.AuthorizationCodeReceived += OnAuthorizationCodeReceived;

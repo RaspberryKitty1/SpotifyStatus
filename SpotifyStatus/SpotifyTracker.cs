@@ -95,7 +95,7 @@ namespace SpotifyStatus
 
             var tokenResponse = await oAuthClient.RequestToken(
               new AuthorizationCodeTokenRequest(
-                SpotifyStatus.Config.GetValue(SpotifyStatus.ClientId), SpotifyStatus.Config.GetValue(SpotifyStatus.ClientSecret), code, new Uri("http://localhost:5000/callback")
+                SpotifyStatus.Config.GetValue(SpotifyStatus.ClientId), SpotifyStatus.Config.GetValue(SpotifyStatus.ClientSecret), code, new Uri("http://127.0.0.1:5000/callback")
               )
             );
 

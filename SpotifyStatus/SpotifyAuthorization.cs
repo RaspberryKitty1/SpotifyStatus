@@ -20,7 +20,7 @@ namespace SpotifyStatus
             authorizationReceived.Reset();
 
             SpotifyStatus.Msg("Starting embedded server");
-            server = new EmbedIOAuthServer(new Uri("http://localhost:5000/callback"), 5000);
+            server = new EmbedIOAuthServer(new Uri("http://127.0.0.1:5000/callback"), 5000);
             await server.Start();
             SpotifyStatus.Msg("Started server");
 
