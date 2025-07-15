@@ -113,7 +113,7 @@ namespace SpotifyStatus
             var tokenResponse = await oAuthClient.RequestToken(
               new AuthorizationCodeTokenRequest(
 
-                Config.ClientId, Config.ClientSecret, code, new Uri("http://localhost:" + Config.CallbackPort + "/callback")
+                Config.ClientId, Config.ClientSecret, code, new Uri("http://127.0.0.1:" + Config.CallbackPort + "/callback")
               )
             );
 

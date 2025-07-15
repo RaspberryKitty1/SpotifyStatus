@@ -7,7 +7,7 @@ A User's Audio Stream can be dropped in as well, and will provide localized volu
 Make sure you have installed the [.NET 5.0 Runtime](https://dotnet.microsoft.com/download)!
 1. Get the latest release of the server [here](https://github.com/Banane9/NeosSpotifyStatus/releases) and extract it somewhere.
 2. Create a Spotify application on the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard/applications).
-3. Go to the settings of your Spotify application and add ``http://localhost:5000/callback`` as a Redirect URI.
+3. Go to the settings of your Spotify application and add ``http://127.0.0.1:5000/callback`` as a Redirect URI.
 4. Put your application's Client ID and Client Secret into the config.ini file of the server program.
 5. Run the program.
 6. Sign in with your Spotify account in the browser window that opened and grant the application access.
