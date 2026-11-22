@@ -10,7 +10,7 @@ A User's Audio Stream can be dropped in as well, and will provide localized volu
 >
 > **Note:** Spotify apps run in **Development Mode** by default and require a **Spotify Premium account** for API access (effective March 9, 2026).
 
-Make sure you have installed the [.NET 10.0 Runtime](https://dotnet.microsoft.com/download)!
+Make sure you have installed the [.NET 11.0 Runtime](https://dotnet.microsoft.com/download)!
 
 1. Get the latest release of the server [here](https://github.com/Banane9/NeosSpotifyStatus/releases) and extract it somewhere.
 2. Create a Spotify application on the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard/applications).
